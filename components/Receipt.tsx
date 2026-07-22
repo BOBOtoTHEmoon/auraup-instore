@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { toPng } from "html-to-image";
 import { naira } from "@/lib/pos-client";
 import Logo from "./Logo";
 import {
@@ -25,8 +26,60 @@ export default function Receipt({
   onClose: () => void;
 }) {
   const [copied, setCopied] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [imageError, setImageError] = useState<string | null>(null);
+  const paper = useRef<HTMLDivElement>(null);
 
   const hasNumber = Boolean(toWhatsAppNumber(data.clientPhone));
+
+  /**
+   * Renders the receipt to a PNG and hands it to the phone's share sheet, so
+   * the customer gets a proper branded image in WhatsApp rather than text.
+   * Desktop has no share sheet, so it downloads instead.
+   */
+  const shareImage = async () => {
+    if (!paper.current || busy) return;
+    setBusy(true);
+    setImageError(null);
+
+    try {
+      const dataUrl = await toPng(paper.current, {
+        // 2x so it stays crisp when someone pinches to zoom
+        pixelRatio: 2,
+        backgroundColor: "#ffffff",
+        cacheBust: true,
+      });
+
+      const blob = await (await fetch(dataUrl)).blob();
+      const file = new File(
+        [blob],
+        `auraup-receipt-${String(data.saleNumber).padStart(4, "0")}.png`,
+        { type: "image/png" }
+      );
+
+      const canShareFile =
+        typeof navigator.canShare === "function" && navigator.canShare({ files: [file] });
+
+      if (canShareFile) {
+        await navigator.share({
+          files: [file],
+          title: `AuraUp receipt #${String(data.saleNumber).padStart(4, "0")}`,
+        });
+      } else {
+        const link = document.createElement("a");
+        link.href = dataUrl;
+        link.download = file.name;
+        link.click();
+      }
+    } catch (err) {
+      // A cancelled share sheet isn't a failure, it's someone changing their mind.
+      if ((err as Error)?.name !== "AbortError") {
+        setImageError("Could not make the image. Send the text instead.");
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const copy = async () => {
     try {
@@ -59,7 +112,7 @@ export default function Receipt({
         </div>
 
         {/* ── The receipt itself, this is what prints ── */}
-        <div className="receipt" id="receipt">
+        <div className="receipt" id="receipt" ref={paper}>
           <div className="receipt-logo">
             <Logo height={26} />
           </div>
@@ -141,15 +194,21 @@ export default function Receipt({
 
         {/* ── Actions ── */}
         <div className="sheet-actions no-print">
+          <button className="primary" onClick={shareImage} disabled={busy}>
+            {busy ? "Preparing\u2026" : "Send as image"}
+          </button>
+
           <a
-            className="primary"
-            style={{ display: "grid", placeItems: "center", textDecoration: "none" }}
+            className="ghost-btn"
+            style={{ marginTop: 10, width: "100%" }}
             href={whatsAppLink(data) ?? "#"}
             target="_blank"
             rel="noreferrer"
           >
-            {hasNumber ? "Send on WhatsApp" : "Share on WhatsApp"}
+            {hasNumber ? "Send as text on WhatsApp" : "Share as text on WhatsApp"}
           </a>
+
+          {imageError && <p className="err-note" style={{ marginTop: 10 }}>{imageError}</p>}
 
           {!hasNumber && (
             <p className="hint-note" style={{ marginTop: 8 }}>
