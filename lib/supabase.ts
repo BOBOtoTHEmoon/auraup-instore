@@ -16,6 +16,17 @@ export const db = createClient(URL, SERVICE_KEY, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
 
+/**
+ * Supabase types an embedded relation as an array, but a many-to-one join
+ * returns a single object at runtime. This normalises both shapes so the
+ * route code doesn't have to guess.
+ */
+export function one<T>(relation: unknown): T | null {
+  if (!relation) return null;
+  if (Array.isArray(relation)) return (relation[0] as T) ?? null;
+  return relation as T;
+}
+
 /* ── Row types, mirroring schema.sql ──────────────────────────── */
 
 export interface StaffRow {

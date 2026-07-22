@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { requireSession, UnauthorisedError } from "@/lib/auth";
-import { db } from "@/lib/supabase";
+import { db, one } from "@/lib/supabase";
 import { resolveRange, type RangePreset } from "@/lib/ranges";
 
 export const dynamic = "force-dynamic";
@@ -40,7 +40,7 @@ export async function GET(req: NextRequest) {
     /* Per staff, so you can see who sold what over the period. */
     const byStaff = new Map<string, { revenue: number; count: number; units: number }>();
     for (const s of live) {
-      const who = (s.staff as { name: string } | null)?.name ?? "Unknown";
+      const who = one<{ name: string }>(s.staff)?.name ?? "Unknown";
       const entry = byStaff.get(who) ?? { revenue: 0, count: 0, units: 0 };
       entry.revenue += Number(s.total);
       entry.count += 1;

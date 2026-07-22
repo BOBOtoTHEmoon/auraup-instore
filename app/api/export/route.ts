@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { requireSession, UnauthorisedError } from "@/lib/auth";
-import { db } from "@/lib/supabase";
+import { db, one } from "@/lib/supabase";
 import { fetchOnlineOrders } from "@/lib/orders";
 import { resolveRange, type RangePreset } from "@/lib/ranges";
 
@@ -74,8 +74,9 @@ async function inStoreRows(from: string, to: string) {
   const rows: Array<Record<string, string | number>> = [];
 
   for (const s of data ?? []) {
-    const client = s.clients as { name: string; phone: string } | null;
-    const staff = s.staff as { name: string } | null;
+    const client = one<{ name: string; phone: string }>(s.clients);
+    const staff = one<{ name: string }>(s.staff);
+    const voidedBy = one<{ name: string }>(s.voided_by_staff);
 
     for (const item of s.sale_items ?? []) {
       rows.push({
@@ -101,8 +102,7 @@ async function inStoreRows(from: string, to: string) {
         Phone: client?.phone ?? "",
         Note: s.note ?? "",
         "Void reason": s.void_reason ?? "",
-        "Voided by":
-          (s.voided_by_staff as { name: string } | null)?.name ?? "",
+        "Voided by": voidedBy?.name ?? "",
       });
     }
   }
