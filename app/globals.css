@@ -30,6 +30,9 @@ html,
 body {
   margin: 0;
   padding: 0;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
   background: var(--paper);
   color: var(--ink);
   font-family: var(--font-body), system-ui, sans-serif;
@@ -56,6 +59,22 @@ input {
 
 .mono {
   font-family: var(--font-mono), ui-monospace, monospace;
+}
+
+/* Flex and grid children default to min-width: auto, which lets one long
+   unbreakable string shove its container wider than the screen. These opt
+   out so things shrink instead of pushing the page sideways. */
+.shell, .split, .catalog, .today, .history, .history-bar,
+.stats, .stat, .panel, .sale-row, .line, .line-main, .order-line,
+.segmented, .segmented button, .history-actions, .ghost-btn,
+.pair, .pair .input {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.stat-value, .sale-items, .sale-who, .line-name,
+.stock-name, .tile-name, .receipt-item {
+  overflow-wrap: anywhere;
 }
 
 /* ── Shell ─────────────────────────────────────────────────── */
@@ -951,7 +970,8 @@ input {
 
 .today {
   padding: 16px 16px 40px;
-  max-width: 960px;
+  width: 100%;
+  max-width: min(960px, 100%);
   margin: 0 auto;
 }
 
@@ -1135,8 +1155,13 @@ input {
 
 .history-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   margin-top: 12px;
+}
+
+.history-actions .ghost-btn {
+  flex: 1 1 130px;
 }
 
 .ghost-btn {
