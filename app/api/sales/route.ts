@@ -49,9 +49,10 @@ export async function GET(req: NextRequest) {
       .from("sales")
       .select(
         `id, sale_number, subtotal, discount, total, payment_method, note,
-         inventory_synced, created_at,
+         inventory_synced, created_at, voided_at, void_reason, void_synced,
          clients ( name, phone ),
-         staff ( name ),
+         staff!staff_id ( name ),
+         voided_by_staff:staff!voided_by ( name ),
          sale_items ( title, color, size, quantity, unit_price, line_total, is_preorder )`
       )
       .order("created_at", { ascending: false })
@@ -84,5 +85,5 @@ function handleError(err: unknown) {
     return NextResponse.json({ error: err.message }, { status: 502 });
   }
   console.error("[sales] error:", err);
-  return NextResponse.json({ error: "Could not complete the sale" }, { status: 500 });
+  return NextResponse.json({ error: "Something went wrong" }, { status: 500 });
 }

@@ -21,6 +21,7 @@ export const db = createClient(URL, SERVICE_KEY, {
 export interface StaffRow {
   id: string;
   name: string;
+  role: "staff" | "owner";
   pin_hash: string;
   is_active: boolean;
   created_at: string;

@@ -288,3 +288,130 @@ export async function retrySaleSync(saleId: string) {
 }
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/* ── Voiding ──────────────────────────────────────────────────── */
+
+export interface VoidResult {
+  saleNumber: number;
+  stockReturned: boolean;
+  error?: string;
+}
+
+/**
+ * Cancels a sale and puts the stock back.
+ *
+ * The row is never deleted. A voided sale still shows in history with who
+ * cancelled it and why, because hiding mistakes is the opposite of what an
+ * audit trail is for.
+ */
+export async function voidSale(
+  saleId: string,
+  staffId: string,
+  reason: string
+): Promise<VoidResult> {
+  const { data: sale, error } = await db
+    .from("sales")
+    .select("*")
+    .eq("id", saleId)
+    .single();
+
+  if (error || !sale) throw new ValidationError("No sale with that id");
+  if (sale.voided_at) throw new ValidationError("That sale is already voided");
+
+  const { data: items } = await db
+    .from("sale_items")
+    .select("inventory_item_id, quantity")
+    .eq("sale_id", saleId);
+
+  const lines = items ?? [];
+
+  // Only give stock back if it was actually taken. A sale that never synced
+  // never moved any stock, so reversing it would invent inventory.
+  const needsReturn = sale.inventory_synced && lines.length > 0;
+
+  // Stable key across retries, but distinct from the original decrement's
+  // key, which Shopify has already consumed.
+  const voidKey = sale.void_key ?? crypto.randomUUID();
+  if (!sale.void_key) {
+    await db.from("sales").update({ void_key: voidKey }).eq("id", saleId);
+  }
+
+  let stockReturned = !needsReturn;
+  let voidError: string | undefined;
+
+  if (needsReturn) {
+    try {
+      await adjustStock(
+        lines
+          .filter((l) => l.inventory_item_id)
+          .map((l) => ({
+            inventoryItemId: l.inventory_item_id as string,
+            // Positive: putting it back on the shelf.
+            delta: l.quantity,
+          })),
+        `void-${sale.sale_number}`,
+        voidKey
+      );
+      stockReturned = true;
+    } catch (err) {
+      voidError = err instanceof Error ? err.message : "Unknown error";
+      console.error(`[sales] void stock return failed for ${sale.sale_number}:`, voidError);
+    }
+  }
+
+  // The sale is marked voided either way. If Shopify was unreachable the
+  // stock return is flagged for retry, same as a failed sale sync.
+  await db
+    .from("sales")
+    .update({
+      voided_at: new Date().toISOString(),
+      voided_by: staffId,
+      void_reason: reason.slice(0, 500),
+      void_synced: stockReturned,
+      void_error: voidError ?? null,
+    })
+    .eq("id", saleId);
+
+  return { saleNumber: sale.sale_number, stockReturned, error: voidError };
+}
+
+/** Re-runs a stock return that failed earlier. */
+export async function retryVoidSync(saleId: string) {
+  const { data: sale } = await db
+    .from("sales")
+    .select("*")
+    .eq("id", saleId)
+    .single();
+
+  if (!sale?.voided_at) throw new ValidationError("That sale isn't voided");
+  if (sale.void_synced) return { ok: true, alreadySynced: true };
+
+  const { data: items } = await db
+    .from("sale_items")
+    .select("inventory_item_id, quantity")
+    .eq("sale_id", saleId);
+
+  try {
+    await adjustStock(
+      (items ?? [])
+        .filter((l) => l.inventory_item_id)
+        .map((l) => ({
+          inventoryItemId: l.inventory_item_id as string,
+          delta: l.quantity,
+        })),
+      `void-${sale.sale_number}`,
+      sale.void_key ?? crypto.randomUUID()
+    );
+
+    await db
+      .from("sales")
+      .update({ void_synced: true, void_error: null })
+      .eq("id", saleId);
+
+    return { ok: true, alreadySynced: false };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    await db.from("sales").update({ void_error: message.slice(0, 500) }).eq("id", saleId);
+    return { ok: false, error: message, alreadySynced: false };
+  }
+}

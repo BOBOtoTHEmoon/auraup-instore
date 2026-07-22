@@ -7,10 +7,17 @@ import Catalog from "@/components/Catalog";
 import VariantPicker from "@/components/VariantPicker";
 import Ticket from "@/components/Ticket";
 import Today from "@/components/Today";
+import History from "@/components/History";
+import Inventory from "@/components/Inventory";
+import Receipt from "@/components/Receipt";
+import type { ReceiptData } from "@/lib/receipt";
 import {
   api,
   initials,
   naira,
+  readLocalCatalog,
+  saveLocalCatalog,
+  timeAgo,
   type CartLine,
   type Product,
   type Staff,
@@ -23,12 +30,16 @@ export default function Page() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(false);
   const [productError, setProductError] = useState<string | null>(null);
+  /** When the catalogue on screen was last confirmed against Shopify. */
+  const [catalogAge, setCatalogAge] = useState<string | null>(null);
+  const [catalogStale, setCatalogStale] = useState(false);
 
-  const [tab, setTab] = useState<"sell" | "today">("sell");
+  const [tab, setTab] = useState<"sell" | "stock" | "today" | "history">("sell");
   const [picking, setPicking] = useState<Product | null>(null);
   const [cart, setCart] = useState<CartLine[]>([]);
   const [ticketOpen, setTicketOpen] = useState(false);
 
+  const [receipt, setReceipt] = useState<ReceiptData | null>(null);
   const [toast, setToast] = useState<{
     title: string;
     sub: string;
@@ -40,10 +51,15 @@ export default function Page() {
 
   /* ── Session ─────────────────────────────────────────────── */
 
+  const isOwner = staff?.role === "owner";
+
   useEffect(() => {
     api
       .session()
-      .then((r) => setStaff(r.staff))
+      .then((r) => {
+        setStaff(r.staff);
+        if (r.staff?.role === "owner") setTab("stock");
+      })
       .catch(() => setStaff(null))
       .finally(() => setChecking(false));
   }, []);
@@ -51,15 +67,33 @@ export default function Page() {
   /* ── Catalog ─────────────────────────────────────────────── */
 
   const loadProducts = useCallback(async () => {
-    setLoadingProducts(true);
+    // Paint whatever is on the device first, so the rack is never empty while
+    // we wait on the network.
+    const local = readLocalCatalog();
+    if (local) {
+      setProducts(local.products);
+      setCatalogAge(local.syncedAt);
+    }
+
+    setLoadingProducts(!local);
     setProductError(null);
+
     try {
       const r = await api.products();
       setProducts(r.products);
+      setCatalogAge(r.syncedAt);
+      setCatalogStale(Boolean(r.stale));
+      if (!r.stale) saveLocalCatalog(r.products, r.syncedAt);
     } catch (err) {
-      setProductError(
-        err instanceof Error ? err.message : "Could not load the catalog"
-      );
+      // Falling back to the device copy is fine. Only complain if there
+      // isn't one, because then there is genuinely nothing to sell from.
+      if (local) {
+        setCatalogStale(true);
+      } else {
+        setProductError(
+          err instanceof Error ? err.message : "Could not load the catalogue"
+        );
+      }
     } finally {
       setLoadingProducts(false);
     }
@@ -114,30 +148,26 @@ export default function Page() {
   /* ── After a sale ────────────────────────────────────────── */
 
   const handleRecorded = (r: {
-    saleNumber: number;
-    total: number;
+    receipt: ReceiptData;
     units: number;
-    client: string;
     synced: boolean;
   }) => {
     setCart([]);
     setTicketOpen(false);
-    setSaleCounter(r.saleNumber + 1);
+    setSaleCounter(r.receipt.saleNumber + 1);
     setTodayKey((k) => k + 1);
 
-    setToast(
-      r.synced
-        ? {
-            title: "Sale recorded",
-            sub: `${r.client} \u00B7 ${r.units} item${r.units === 1 ? "" : "s"} \u00B7 ${naira(r.total)}`,
-          }
-        : {
-            title: "Sale saved, stock not synced",
-            sub: "Shopify unreachable. It will retry.",
-            tone: "warn",
-          }
-    );
-    setTimeout(() => setToast(null), 3200);
+    // Straight to the receipt, since the customer is still standing there.
+    setReceipt(r.receipt);
+
+    if (!r.synced) {
+      setToast({
+        title: "Sale saved, stock not synced",
+        sub: "Shopify unreachable. It will retry.",
+        tone: "warn",
+      });
+      setTimeout(() => setToast(null), 3200);
+    }
 
     // Stock moved, so the catalog on screen is stale.
     loadProducts();
@@ -180,7 +210,15 @@ export default function Page() {
     );
   }
 
-  if (!staff) return <PinPad onSignedIn={setStaff} />;
+  if (!staff)
+    return (
+      <PinPad
+        onSignedIn={(s) => {
+          setStaff(s);
+          setTab(s.role === "owner" ? "stock" : "sell");
+        }}
+      />
+    );
 
   return (
     <div className="shell">
@@ -188,11 +226,20 @@ export default function Page() {
         <Logo height={22} />
 
         <nav className="tabs">
-          <button data-on={tab === "sell"} onClick={() => setTab("sell")}>
-            Sell
-          </button>
+          {isOwner ? (
+            <button data-on={tab === "stock"} onClick={() => setTab("stock")}>
+              Stock
+            </button>
+          ) : (
+            <button data-on={tab === "sell"} onClick={() => setTab("sell")}>
+              Sell
+            </button>
+          )}
           <button data-on={tab === "today"} onClick={() => setTab("today")}>
             Today
+          </button>
+          <button data-on={tab === "history"} onClick={() => setTab("history")}>
+            History
           </button>
         </nav>
 
@@ -218,8 +265,33 @@ export default function Page() {
         </div>
       )}
 
-      {tab === "today" ? (
-        <Today refreshKey={todayKey} />
+      {catalogStale && !productError && catalogAge && (
+        <div className="banner" data-tone="soft">
+          <span>
+            Showing saved products from {timeAgo(catalogAge)}. Stock may have
+            moved since.
+          </span>
+          <button onClick={loadProducts}>Refresh</button>
+        </div>
+      )}
+
+      {tab === "stock" ? (
+        <Inventory
+          products={products}
+          loading={loadingProducts}
+          onReload={loadProducts}
+        />
+      ) : tab === "history" ? (
+        <History />
+      ) : tab === "today" ? (
+        <Today
+          refreshKey={todayKey}
+          onChanged={() => {
+            // Voiding puts stock back, so the catalog on screen is stale.
+            loadProducts();
+            checkPending();
+          }}
+        />
       ) : (
         <div className="split">
           <Catalog
@@ -239,7 +311,7 @@ export default function Page() {
         </div>
       )}
 
-      {tab === "sell" && cart.length > 0 && (
+      {tab === "sell" && !isOwner && cart.length > 0 && (
         <button className="cartbar" onClick={() => setTicketOpen(true)}>
           <span>
             <span className="cartbar-count">
@@ -270,6 +342,8 @@ export default function Page() {
           onClose={() => setTicketOpen(false)}
         />
       )}
+
+      {receipt && <Receipt data={receipt} onClose={() => setReceipt(null)} />}
 
       {toast && (
         <div className="toast" data-tone={toast.tone}>

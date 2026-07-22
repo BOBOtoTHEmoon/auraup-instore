@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api, naira, type CartLine } from "@/lib/pos-client";
 import Logo from "./Logo";
+import type { ReceiptData } from "@/lib/receipt";
 
 type Payment = "cash" | "transfer" | "card";
 
@@ -30,10 +31,8 @@ export default function Ticket({
   onQty: (variantId: string, delta: number) => void;
   onRemove: (variantId: string) => void;
   onRecorded: (result: {
-    saleNumber: number;
-    total: number;
+    receipt: ReceiptData;
     units: number;
-    client: string;
     synced: boolean;
   }) => void;
   onClose?: () => void;
@@ -112,11 +111,26 @@ export default function Ticket({
       });
 
       onRecorded({
-        saleNumber: result.sale.saleNumber,
-        total: result.sale.total,
         units,
-        client: name.trim() || "Walk-in",
         synced: result.inventorySynced,
+        receipt: {
+          saleNumber: result.sale.saleNumber,
+          createdAt: result.sale.createdAt,
+          staffName: result.sale.staff,
+          clientName: name.trim() || null,
+          clientPhone: phone.trim() || null,
+          paymentMethod: payment,
+          subtotal,
+          discount: disc,
+          total,
+          lines: lines.map((l) => ({
+            title: l.title,
+            color: l.color,
+            size: l.size,
+            quantity: l.quantity,
+            lineTotal: l.price * l.quantity,
+          })),
+        },
       });
 
       setName("");

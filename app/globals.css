@@ -196,14 +196,14 @@ input {
 
 .pips {
   display: flex;
-  gap: 14px;
+  gap: 11px;
   justify-content: center;
   margin: 30px 0;
 }
 
 .pips span {
-  width: 12px;
-  height: 12px;
+  width: 11px;
+  height: 11px;
   border-radius: 50%;
   border: 1.5px solid var(--ink);
   transition: background 0.15s;
@@ -872,6 +872,18 @@ input {
   font-size: 12.5px;
 }
 
+/* A stale catalogue is a heads-up, not an emergency */
+.banner[data-tone="soft"] {
+  border-color: var(--line);
+  color: var(--mute);
+}
+
+.banner[data-tone="soft"] button {
+  background: var(--card);
+  color: var(--ink);
+  border-color: var(--ink);
+}
+
 .banner button {
   margin-left: auto;
   border: 1px solid var(--ink);
@@ -1047,13 +1059,559 @@ input {
   margin-top: 3px;
 }
 
-.unsynced {
+.tag {
   display: inline-block;
   margin-left: 6px;
-  font-size: 9px;
+  font-size: 8.5px;
+  font-weight: 800;
   letter-spacing: 0.1em;
   text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 2px;
+  vertical-align: middle;
+}
+
+.tag[data-tone="warn"] {
   color: var(--warn);
+  border: 1px solid var(--warn);
+}
+
+.tag[data-tone="void"] {
+  color: var(--card);
+  background: var(--mute);
+}
+
+/* A voided sale stays visible but reads as struck from the record */
+.sale-row[data-voided="true"] .sale-total,
+.sale-row[data-voided="true"] .sale-items {
+  text-decoration: line-through;
+  opacity: 0.55;
+}
+
+.sale-row[data-voided="true"] .sale-items:last-child {
+  text-decoration: none;
+  opacity: 0.8;
+}
+
+.void-btn {
+  margin-top: 6px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--mute);
+  border-radius: 2px;
+  min-height: 30px;
+  padding: 0 11px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.void-btn:active {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+
+
+/* ── History ───────────────────────────────────────────────── */
+
+.history-bar {
+  margin-bottom: 14px;
+}
+
+.history-bar .segmented {
+  margin-bottom: 10px;
+}
+
+.history-bar .filters {
+  margin-top: 0;
+}
+
+.history-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.ghost-btn {
+  flex: 1;
+  min-height: var(--tap);
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--ink);
+  background: var(--card);
+  color: var(--ink);
+  border-radius: var(--radius);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  text-decoration: none;
+}
+
+.ghost-btn:active {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.tag[data-tone="soft"] {
+  color: var(--mute);
+  border: 1px solid var(--line);
+  text-transform: capitalize;
+  letter-spacing: 0.04em;
+}
+
+/* A row that opens something, rather than just displaying */
+.tappable {
+  width: 100%;
+  border: none;
+  border-top: 1px solid var(--line-soft);
+  background: none;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  align-items: flex-start;
+}
+
+.tappable:first-of-type {
+  border-top: none;
+}
+
+.tappable:active {
+  background: var(--paper);
+}
+
+/* ── Order detail ──────────────────────────────────────────── */
+
+.order-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-family: var(--font-mono), monospace;
+  font-size: 11.5px;
+  color: var(--mute);
+  padding-top: 10px;
+}
+
+.order-status .tag {
+  margin-left: 4px;
+}
+
+.order-line {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 9px 0;
+}
+
+.order-thumb {
+  width: 46px;
+  height: 58px;
+  flex: none;
+  background: #f3f2ed;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.order-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.address {
+  font-size: 13.5px;
+  line-height: 1.6;
+}
+
+.address .mono {
+  font-family: var(--font-mono), monospace;
+  font-size: 12px;
+  color: var(--mute);
+}
+
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13.5px;
+  margin: 4px 0 14px;
+  min-height: var(--tap);
+}
+
+.check-row input {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--ink);
+}
+
+.link-btn {
+  display: block;
+  width: 100%;
+  margin-top: 10px;
+  border: none;
+  background: none;
+  color: var(--mute);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  text-align: center;
+  text-decoration: none;
+  min-height: 38px;
+}
+
+.err-note {
+  color: var(--warn);
+  font-size: 12.5px;
+  margin-bottom: 10px;
+  line-height: 1.5;
+}
+
+.shipped-note {
+  font-size: 13.5px;
+  line-height: 1.5;
+  padding: 12px;
+  border: 1px solid var(--ink);
+  border-radius: var(--radius);
+  background: var(--paper);
+}
+
+.hint-note {
+  font-size: 12.5px;
+  color: var(--mute);
+  line-height: 1.5;
+}
+
+/* Only shown on paper */
+.print-header {
+  display: none;
+}
+
+/* ── Print / Save as PDF ───────────────────────────────────── */
+
+@media print {
+  @page {
+    margin: 14mm;
+  }
+
+  .topbar,
+  .cartbar,
+  .banner,
+  .no-print,
+  .void-btn {
+    display: none !important;
+  }
+
+  body {
+    background: #fff;
+  }
+
+  .today,
+  .history {
+    padding: 0;
+    max-width: none;
+  }
+
+  .print-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    border-bottom: 2px solid #000;
+    padding-bottom: 8px;
+    margin-bottom: 14px;
+    font-size: 11pt;
+    letter-spacing: 0.1em;
+  }
+
+  .stats {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+  }
+
+  .stat,
+  .panel {
+    border: 1px solid #999;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  /* The inverted revenue card wastes a whole toner cartridge on paper */
+  .stat[data-lead="true"] {
+    background: #fff !important;
+    color: #000 !important;
+    border-color: #000;
+  }
+
+  .sale-row {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .panel-head {
+    color: #000;
+  }
+}
+
+/* ── Receipt ───────────────────────────────────────────────── */
+
+.receipt {
+  padding: 18px 20px 4px;
+  font-family: var(--font-mono), monospace;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.receipt-logo {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 7px;
+}
+
+.receipt-brand {
+  font-family: var(--font-body), sans-serif;
+  font-weight: 900;
+  letter-spacing: 0.26em;
+  font-size: 19px;
+  text-align: center;
+}
+
+.receipt-tagline {
+  text-align: center;
+  font-family: var(--font-body), sans-serif;
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--mute);
+  margin-top: 5px;
+}
+
+.receipt-rule {
+  border-top: 1px solid var(--ink);
+  margin: 14px 0;
+}
+
+.receipt-rule[data-dash="true"] {
+  border-top-style: dashed;
+  border-color: var(--line);
+}
+
+.receipt-meta > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 3px;
+}
+
+.receipt-meta span:first-child {
+  color: var(--mute);
+}
+
+.receipt-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 9px;
+}
+
+.receipt-item {
+  font-family: var(--font-body), sans-serif;
+  font-weight: 700;
+  font-size: 12.5px;
+}
+
+.receipt-variant {
+  color: var(--mute);
+  font-size: 11px;
+  margin-top: 1px;
+}
+
+.receipt-amount {
+  white-space: nowrap;
+}
+
+.receipt-total-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 4px;
+  color: var(--mute);
+}
+
+.receipt-total-row[data-grand="true"] {
+  color: var(--ink);
+  font-weight: 700;
+  font-size: 15px;
+  margin: 8px 0;
+}
+
+.receipt-foot {
+  text-align: center;
+  font-size: 10.5px;
+  color: var(--mute);
+  line-height: 1.6;
+}
+
+.receipt-thanks {
+  margin-top: 10px;
+  color: var(--ink);
+}
+
+.row-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+  margin-top: 6px;
+}
+
+/* Printing a receipt: just the receipt, roughly till-roll width */
+@media print {
+  .receipt {
+    padding: 0;
+    width: 72mm;
+    margin: 0 auto;
+  }
+
+  .scrim {
+    position: static;
+    background: none;
+    display: block;
+    padding: 0;
+  }
+
+  .sheet {
+    max-height: none;
+    box-shadow: none;
+    border-radius: 0;
+    overflow: visible;
+  }
+}
+
+/* ── Stock grid (owner) ────────────────────────────────────── */
+
+.stock-card {
+  padding: 14px;
+}
+
+.stock-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.stock-thumb {
+  width: 46px;
+  height: 58px;
+  flex: none;
+  background: #f3f2ed;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.stock-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.stock-name {
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.stock-sub {
+  font-size: 11.5px;
+  color: var(--mute);
+  margin-top: 3px;
+}
+
+.stock-right {
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* Wide size ranges need to scroll on a phone rather than squash */
+.grid-scroll {
+  overflow-x: auto;
+  scrollbar-width: thin;
+  margin: 0 -2px;
+}
+
+.stock-grid {
+  border-collapse: collapse;
+  font-family: var(--font-mono), monospace;
+  font-size: 12.5px;
+  min-width: 100%;
+}
+
+.stock-grid th {
+  font-weight: 700;
+  color: var(--mute);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 6px 10px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.stock-grid tbody th {
+  text-align: left;
+  color: var(--ink);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  position: sticky;
+  left: 0;
+  background: var(--card);
+}
+
+.stock-grid td {
+  padding: 9px 10px;
+  text-align: center;
+  border: 1px solid var(--line-soft);
+  min-width: 46px;
+}
+
+.stock-grid td[data-state="ok"] {
+  background: var(--paper);
+}
+
+.stock-grid td[data-state="low"] {
+  background: rgba(180, 85, 46, 0.12);
+  color: var(--warn);
+  font-weight: 700;
+}
+
+.stock-grid td[data-state="out"] {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.stock-grid td[data-state="preorder"] {
+  border-style: dashed;
+  color: var(--mute);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.stock-grid td.none {
+  color: var(--line);
+  background: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 4px,
+    var(--line-soft) 4px,
+    var(--line-soft) 5px
+  );
 }
 
 /* ── Loading ───────────────────────────────────────────────── */

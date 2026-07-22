@@ -16,6 +16,19 @@ const CLIENT_ID = process.env.SHOPIFY_CLIENT_ID;
 const CLIENT_SECRET = process.env.SHOPIFY_CLIENT_SECRET;
 const VERSION = process.env.SHOPIFY_API_VERSION || "2025-01";
 
+/**
+ * How long to wait for Shopify before giving up. Node's default connect
+ * timeout is 10 seconds, which is an eternity with a customer at the counter.
+ * Failing at 7 lets the cached catalogue take over sooner.
+ */
+const TIMEOUT_MS = Number(process.env.SHOPIFY_TIMEOUT_MS) || 7000;
+
+function withTimeout(ms: number) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  return { signal: controller.signal, done: () => clearTimeout(timer) };
+}
+
 export class ShopifyError extends Error {
   constructor(message: string, public detail?: unknown) {
     super(message);
@@ -52,16 +65,28 @@ export async function getAccessToken(): Promise<string> {
 }
 
 async function requestToken(): Promise<string> {
-  const res = await fetch(`https://${DOMAIN}/admin/oauth/access_token`, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      grant_type: "client_credentials",
-      client_id: CLIENT_ID as string,
-      client_secret: CLIENT_SECRET as string,
-    }),
-    cache: "no-store",
-  });
+  const t = withTimeout(TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = await fetch(`https://${DOMAIN}/admin/oauth/access_token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "client_credentials",
+        client_id: CLIENT_ID as string,
+        client_secret: CLIENT_SECRET as string,
+      }),
+      cache: "no-store",
+      signal: t.signal,
+    });
+  } catch (err) {
+    if ((err as Error)?.name === "AbortError") {
+      throw new ShopifyError(`Shopify did not respond within ${TIMEOUT_MS}ms`);
+    }
+    throw err;
+  } finally {
+    t.done();
+  }
 
   const raw = await res.text();
 
@@ -112,15 +137,27 @@ export async function shopifyGraphQL<T>(
 ): Promise<T> {
   const token = await getAccessToken();
 
-  const res = await fetch(`https://${DOMAIN}/admin/api/${VERSION}/graphql.json`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Shopify-Access-Token": token,
-    },
-    body: JSON.stringify({ query, variables }),
-    cache: "no-store",
-  });
+  const t = withTimeout(TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = await fetch(`https://${DOMAIN}/admin/api/${VERSION}/graphql.json`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Shopify-Access-Token": token,
+      },
+      body: JSON.stringify({ query, variables }),
+      cache: "no-store",
+      signal: t.signal,
+    });
+  } catch (err) {
+    if ((err as Error)?.name === "AbortError") {
+      throw new ShopifyError(`Shopify did not respond within ${TIMEOUT_MS}ms`);
+    }
+    throw err;
+  } finally {
+    t.done();
+  }
 
   // Token went stale early. Drop the cache and try once more.
   if ((res.status === 401 || res.status === 403) && attempt === 0) {

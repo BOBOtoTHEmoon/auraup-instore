@@ -1,30 +1,28 @@
 import { NextResponse } from "next/server";
-import { fetchAllProducts } from "@/lib/products";
+import { getCatalog } from "@/lib/catalog";
 import { ShopifyError } from "@/lib/shopify";
-import type { CatalogResponse } from "@/types/catalog";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    const products = await fetchAllProducts();
+    const { products, syncedAt, stale } = await getCatalog();
 
-    const body: CatalogResponse = {
+    return NextResponse.json({
       products,
-      syncedAt: new Date().toISOString(),
+      syncedAt,
+      stale,
       count: products.length,
-    };
-
-    return NextResponse.json(body);
+    });
   } catch (err) {
-    if (err instanceof ShopifyError) {
-      console.error("[products] Shopify error:", err.message, err.detail);
-      return NextResponse.json(
-        { error: "Could not reach Shopify", detail: err.message },
-        { status: 502 }
-      );
-    }
-    console.error("[products] Unexpected error:", err);
-    return NextResponse.json({ error: "Something went wrong" }, { status: 500 });
+    // Only reached when Shopify is down AND nothing has ever been cached.
+    const message =
+      err instanceof ShopifyError ? err.message : "Could not load the catalogue";
+    console.error("[products] no catalogue available:", err);
+
+    return NextResponse.json(
+      { error: message, products: [], stale: true },
+      { status: 502 }
+    );
   }
 }

@@ -10,6 +10,14 @@ if (!PIN_SECRET) throw new Error("STAFF_PIN_SECRET is not set");
 if (!SESSION_SECRET) throw new Error("SESSION_SECRET is not set");
 
 export const SESSION_COOKIE = "auraup_staff";
+
+/**
+ * PIN length. Six digits gives a million combinations instead of ten
+ * thousand, which matters now the app sits on a public URL.
+ * The client reads NEXT_PUBLIC_PIN_LENGTH so the pad knows when to submit.
+ */
+export const PIN_LENGTH = Number(process.env.NEXT_PUBLIC_PIN_LENGTH) || 6;
+const PIN_PATTERN = /^\d{4,8}$/;
 const SESSION_HOURS = 12; // one long shift
 
 /* ── PIN hashing ──────────────────────────────────────────────── */
@@ -26,42 +34,55 @@ export function hashPin(pin: string): string {
   return createHmac("sha256", PIN_SECRET as string).update(pin.trim()).digest("hex");
 }
 
-/* ── Rate limiting ────────────────────────────────────────────── */
+/* ── Rate limiting, shared across instances ───────────────────── */
 
-const attempts = new Map<string, { count: number; until: number }>();
+/**
+ * Vercel spreads requests across many short-lived machines, so an
+ * in-memory counter never sees the previous attempt and the lockout
+ * silently does nothing. Attempts live in Postgres instead, which every
+ * instance can see.
+ */
+
 const MAX_ATTEMPTS = 8;
-const LOCKOUT_MS = 5 * 60 * 1000;
+const WINDOW_MINUTES = 15;
 
-export function checkRateLimit(key: string): { allowed: boolean; retryInSeconds?: number } {
-  const now = Date.now();
-  const entry = attempts.get(key);
+export async function checkRateLimit(
+  ip: string
+): Promise<{ allowed: boolean; remaining: number }> {
+  const { data, error } = await db.rpc("recent_failed_attempts", {
+    p_ip: ip,
+    p_minutes: WINDOW_MINUTES,
+  });
 
-  if (entry && entry.until > now && entry.count >= MAX_ATTEMPTS) {
-    return { allowed: false, retryInSeconds: Math.ceil((entry.until - now) / 1000) };
+  if (error) {
+    // Never lock staff out because the database hiccuped.
+    console.error("[auth] rate limit check failed:", error.message);
+    return { allowed: true, remaining: MAX_ATTEMPTS };
   }
-  if (entry && entry.until <= now) attempts.delete(key);
-  return { allowed: true };
+
+  const failures = Number(data) || 0;
+  return {
+    allowed: failures < MAX_ATTEMPTS,
+    remaining: Math.max(0, MAX_ATTEMPTS - failures),
+  };
 }
 
-export function recordFailure(key: string) {
-  const now = Date.now();
-  const entry = attempts.get(key);
-  if (!entry || entry.until <= now) {
-    attempts.set(key, { count: 1, until: now + LOCKOUT_MS });
-  } else {
-    entry.count += 1;
-    entry.until = now + LOCKOUT_MS;
+export async function recordAttempt(ip: string, succeeded: boolean) {
+  try {
+    await db.from("auth_attempts").insert({ ip, succeeded });
+    // Opportunistic cleanup, roughly one run in fifty.
+    if (Math.random() < 0.02) await db.rpc("prune_auth_attempts");
+  } catch (err) {
+    console.error("[auth] could not record attempt:", err);
   }
 }
 
-export function clearFailures(key: string) {
-  attempts.delete(key);
-}
+export const LOCKOUT_MINUTES = WINDOW_MINUTES;
 
 /* ── Staff lookup ─────────────────────────────────────────────── */
 
 export async function findStaffByPin(pin: string): Promise<StaffRow | null> {
-  if (!/^\d{4}$/.test(pin.trim())) return null;
+  if (!PIN_PATTERN.test(pin.trim())) return null;
 
   const { data, error } = await db
     .from("staff")
@@ -76,9 +97,12 @@ export async function findStaffByPin(pin: string): Promise<StaffRow | null> {
 
 /* ── Session cookie ───────────────────────────────────────────── */
 
+export type Role = "staff" | "owner";
+
 export interface Session {
   staffId: string;
   staffName: string;
+  role: Role;
   exp: number;
 }
 
@@ -113,6 +137,8 @@ export async function createSession(staff: StaffRow) {
   const session: Session = {
     staffId: staff.id,
     staffName: staff.name,
+    // Older sessions predate roles, so default rather than crash.
+    role: (staff as StaffRow & { role?: Role }).role ?? "staff",
     exp: Date.now() + SESSION_HOURS * 3600 * 1000,
   };
 
