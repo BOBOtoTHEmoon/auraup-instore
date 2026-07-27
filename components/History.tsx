@@ -37,7 +37,9 @@ export default function History() {
      overwrite a fast success and you get last month's label on this month's
      numbers. */
   const requestId = useRef(0);
-  const [reloadKey, setReloadKey] = useState(0);
+  // Reserved for future manual refresh; kept in the dependency array so a
+  // change here would re-run the load.
+  const reloadKey = 0;
 
   useEffect(() => {
     if (preset === "custom" && (!customFrom || !customTo)) return;
@@ -169,7 +171,7 @@ export default function History() {
           )}
 
           {source === "online" && online && (
-            <OnlineDetail data={online} onRefresh={() => setReloadKey((k) => k + 1)} />
+            <OnlineDetail data={online} />
           )}
         </>
       )}
@@ -432,13 +434,7 @@ function SaleSheet({ sale, onClose }: { sale: InStoreSale; onClose: () => void }
 
 /* ── Online ───────────────────────────────────────────────────── */
 
-function OnlineDetail({
-  data,
-  onRefresh,
-}: {
-  data: OnlineData;
-  onRefresh: () => void;
-}) {
+function OnlineDetail({ data }: { data: OnlineData }) {
   const [open, setOpen] = useState<OrderDetail | null>(null);
 
   return (
@@ -492,7 +488,6 @@ function OnlineDetail({
           order={open}
           storeHandle={data.storeHandle}
           onClose={() => setOpen(null)}
-          onFulfilled={onRefresh}
         />
       )}
     </div>
