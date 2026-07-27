@@ -4,9 +4,13 @@ import { useEffect, useMemo, useState } from "react";
 import { naira, type CartLine, type Product, type Variant } from "@/lib/pos-client";
 
 /**
- * Colour, then size, then quantity. Nothing reaches the sale without all three
- * being real: sold-out sizes can't be tapped, and quantity is capped at what's
- * actually on the shelf unless the variant is pre-order.
+ * Pick each option the product actually has, then quantity.
+ *
+ * Products aren't always split by colour and size. Socks might be split by
+ * style, a cap by fit. So this renders one selector per real option dimension,
+ * whatever it's called, rather than assuming two fixed ones. Sold-out
+ * combinations can't be tapped, and quantity is capped at real stock unless the
+ * variant is pre-order.
  */
 export default function VariantPicker({
   product,
@@ -17,43 +21,54 @@ export default function VariantPicker({
   onClose: () => void;
   onAdd: (line: CartLine) => void;
 }) {
-  const hasColours = product.colors.length > 0;
-
-  const [colour, setColour] = useState<string | null>(
-    hasColours ? product.colors[0] : null
-  );
-  const [size, setSize] = useState<string | null>(null);
-  const [qty, setQty] = useState(1);
+  const dimensions = product.optionNames;
   const [broken, setBroken] = useState(false);
+  const [qty, setQty] = useState(1);
 
-  /** Variants matching the chosen colour. */
-  const inColour = useMemo(
-    () => product.variants.filter((v) => (hasColours ? v.color === colour : true)),
-    [product.variants, colour, hasColours]
-  );
+  /** Chosen value per option dimension, e.g. { Colour: "Black", Size: "L" }. */
+  const [choice, setChoice] = useState<Record<string, string>>({});
 
-  // Reset the size whenever the colour changes, since availability differs.
-  // If there's only one option, choose it so staff don't have to.
+  // Preselect any dimension that only has one value, and reset on product swap.
   useEffect(() => {
-    setSize(inColour.length === 1 ? inColour[0].size : null);
+    const initial: Record<string, string> = {};
+    for (const name of dimensions) {
+      const values = product.optionValues[name] ?? [];
+      if (values.length === 1) initial[name] = values[0];
+    }
+    setChoice(initial);
     setQty(1);
-  }, [colour, product.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [product.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const selected: Variant | undefined = useMemo(
-    () => inColour.find((v) => v.size === size) ?? (inColour.length === 1 ? inColour[0] : undefined),
-    [inColour, size]
-  );
+  /** Does this variant match everything chosen so far? */
+  const matches = (v: Variant, partial: Record<string, string>) =>
+    Object.entries(partial).every((entry) =>
+      v.options.some((o) => o.name === entry[0] && o.value === entry[1])
+    );
 
-  const maxQty = selected
-    ? selected.isPreorder
-      ? 99
-      : Math.max(1, selected.stock)
-    : 1;
+  /** The variant that matches every dimension, once they're all chosen. */
+  const selected: Variant | undefined = useMemo(() => {
+    if (dimensions.length === 0) return product.variants[0];
+    if (dimensions.some((name) => !choice[name])) return undefined;
+    return product.variants.find((v) => matches(v, choice));
+  }, [product.variants, dimensions, choice]);
+
+  const maxQty = selected ? (selected.isPreorder ? 99 : Math.max(1, selected.stock)) : 1;
 
   const canAdd =
-    Boolean(selected) &&
-    (selected!.isPreorder || selected!.stock > 0) &&
-    qty >= 1;
+    Boolean(selected) && (selected!.isPreorder || selected!.stock > 0) && qty >= 1;
+
+  /** Is there any in-stock (or pre-order) variant for this value, given the
+      other choices already made? Drives whether a chip is tappable. */
+  const valueAvailable = (name: string, value: string) => {
+    const others = { ...choice };
+    delete others[name];
+    return product.variants.some(
+      (v) =>
+        v.options.some((o) => o.name === name && o.value === value) &&
+        matches(v, others) &&
+        (v.stock > 0 || v.isPreorder)
+    );
+  };
 
   const add = () => {
     if (!selected || !canAdd) return;
@@ -62,13 +77,18 @@ export default function VariantPicker({
       variantId: selected.id,
       title: product.title,
       color: selected.color,
-      size: selected.size,
+      // When a product isn't split by colour/size, carry its descriptor
+      // (e.g. "Crew") through the size slot so it shows on the ticket and
+      // receipt without needing new columns.
+      size: selected.size ?? (selected.color ? null : selected.label || null),
       price: selected.price,
       quantity: qty,
       isPreorder: selected.isPreorder,
       image: selected.image ?? product.image,
     });
   };
+
+  const soldOut = product.totalStock <= 0 && !product.isPreorder;
 
   return (
     <div className="scrim" onClick={onClose} role="dialog" aria-modal="true">
@@ -96,57 +116,32 @@ export default function VariantPicker({
           </div>
         </div>
 
-        {hasColours && (
-          <>
-            <div className="field-label">Colour</div>
+        {/* One selector per real option dimension. */}
+        {dimensions.map((name) => (
+          <div key={name}>
+            <div className="field-label">{name}</div>
             <div className="chips">
-              {product.colors.map((c) => {
-                const any = product.variants.some(
-                  (v) => v.color === c && (v.stock > 0 || v.isPreorder)
-                );
+              {(product.optionValues[name] ?? []).map((value) => {
+                const available = valueAvailable(name, value);
                 return (
                   <button
-                    key={c}
+                    key={value}
                     className="chip"
-                    data-on={colour === c}
-                    data-state={any ? undefined : "out"}
-                    disabled={!any}
-                    onClick={() => setColour(c)}
-                  >
-                    {c}
-                  </button>
-                );
-              })}
-            </div>
-          </>
-        )}
-
-        {inColour.some((v) => v.size) && (
-          <>
-            <div className="field-label">Size</div>
-            <div className="chips">
-              {inColour.map((v) => {
-                const out = !v.isPreorder && v.stock <= 0;
-                return (
-                  <button
-                    key={v.id}
-                    className="chip"
-                    data-on={size === v.size}
-                    data-state={out ? "out" : v.isPreorder ? "preorder" : undefined}
-                    disabled={out}
+                    data-on={choice[name] === value}
+                    data-state={available ? undefined : "out"}
+                    disabled={!available}
                     onClick={() => {
-                      setSize(v.size);
+                      setChoice((c) => ({ ...c, [name]: value }));
                       setQty(1);
                     }}
                   >
-                    {v.size ?? "One size"}
-                    {v.isPreorder && <span className="chip-note">pre</span>}
+                    {value}
                   </button>
                 );
               })}
             </div>
-          </>
-        )}
+          </div>
+        ))}
 
         {selected && (
           <div
@@ -160,7 +155,7 @@ export default function VariantPicker({
               : selected.stock <= 0
                 ? "Out of stock"
                 : selected.stock <= 2
-                  ? `Only ${selected.stock} left in this size`
+                  ? `Only ${selected.stock} left`
                   : `${selected.stock} in stock`}
           </div>
         )}
@@ -181,9 +176,13 @@ export default function VariantPicker({
 
         <div className="sheet-actions">
           <button className="primary" disabled={!canAdd} onClick={add}>
-            {!selected
-              ? "Select a size"
-              : `Add to sale \u2014 ${naira(selected.price * qty)}`}
+            {soldOut
+              ? "Sold out"
+              : !selected
+                ? dimensions.length
+                  ? `Choose ${dimensions[dimensions.findIndex((n) => !choice[n])] ?? "options"}`
+                  : "Unavailable"
+                : `Add to sale \u2014 ${naira(selected.price * qty)}`}
           </button>
         </div>
       </div>

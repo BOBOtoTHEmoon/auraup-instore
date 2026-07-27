@@ -127,6 +127,7 @@ function normaliseProduct(raw: RawProduct): Product {
     isPreorder: sellable.length > 0 && sellable.every((v) => v.isPreorder),
     colors: distinct(variants.map((v) => v.color)),
     sizes: distinct(variants.map((v) => v.size)),
+    ...deriveOptions(variants),
     variants,
     totalStock: variants.reduce((sum, v) => sum + Math.max(0, v.stock), 0),
   };
@@ -144,6 +145,12 @@ function normaliseVariant(raw: RawVariant, taggedPreorder: boolean): Variant {
   const isPreorder =
     taggedPreorder || (raw.inventoryPolicy === "CONTINUE" && stock <= 0 && raw.availableForSale);
 
+  // Shopify uses "Default Title" for products with no real options.
+  // Drop it so a plain product doesn't show a meaningless chip.
+  const options = raw.selectedOptions.filter(
+    (o) => o.value && o.value.trim().toLowerCase() !== "default title"
+  );
+
   return {
     id: raw.id,
     inventoryItemId: raw.inventoryItem?.id ?? null,
@@ -151,6 +158,8 @@ function normaliseVariant(raw: RawVariant, taggedPreorder: boolean): Variant {
     title: raw.title,
     color: pickOption(raw.selectedOptions, ["color", "colour"]),
     size: pickOption(raw.selectedOptions, ["size"]),
+    options,
+    label: options.map((o) => o.value).join(" / "),
     price: Number.parseFloat(raw.price) || 0,
     stock,
     availability: deriveAvailability(stock, isPreorder, raw.availableForSale),
@@ -188,6 +197,33 @@ function deriveCategory(collectionTitles: string[]): string {
   if (men) return "Men";
   if (women) return "Women";
   return "Unisex";
+}
+
+/**
+ * Collects the option dimensions across a product's variants, preserving the
+ * order Shopify returns them in. Works whether a product is split by colour and
+ * size, by a single "Style" option, or anything else.
+ */
+function deriveOptions(variants: Variant[]): {
+  optionNames: string[];
+  optionValues: Record<string, string[]>;
+} {
+  const names: string[] = [];
+  const values: Record<string, string[]> = {};
+
+  for (const v of variants) {
+    for (const opt of v.options) {
+      if (!names.includes(opt.name)) {
+        names.push(opt.name);
+        values[opt.name] = [];
+      }
+      if (!values[opt.name].includes(opt.value)) {
+        values[opt.name].push(opt.value);
+      }
+    }
+  }
+
+  return { optionNames: names, optionValues: values };
 }
 
 function distinct(values: Array<string | null>): string[] {

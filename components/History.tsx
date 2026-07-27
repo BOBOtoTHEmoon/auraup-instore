@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { api, naira } from "@/lib/pos-client";
 import { PRESETS, type RangePreset } from "@/lib/ranges";
 import OrderSheet from "./OrderSheet";
+import Receipt from "./Receipt";
+import type { ReceiptData } from "@/lib/receipt";
 
 type Source = "instore" | "online";
 
@@ -35,6 +37,7 @@ export default function History() {
      overwrite a fast success and you get last month's label on this month's
      numbers. */
   const requestId = useRef(0);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     if (preset === "custom" && (!customFrom || !customTo)) return;
@@ -53,7 +56,7 @@ export default function History() {
     job
       .catch((e) => current() && setError(e instanceof Error ? e.message : "Could not load"))
       .finally(() => current() && setLoading(false));
-  }, [source, qs, preset, customFrom, customTo]);
+  }, [source, qs, preset, customFrom, customTo, reloadKey]);
 
   const data = source === "instore" ? inStore : online;
   const showData = data && !error;
@@ -165,7 +168,9 @@ export default function History() {
             <InStoreDetail data={inStore} />
           )}
 
-          {source === "online" && online && <OnlineDetail data={online} />}
+          {source === "online" && online && (
+            <OnlineDetail data={online} onRefresh={() => setReloadKey((k) => k + 1)} />
+          )}
         </>
       )}
     </div>
@@ -174,53 +179,68 @@ export default function History() {
 
 /* ── In-store ─────────────────────────────────────────────────── */
 
+type InStoreSale = InStoreData["sales"][number];
+
 function InStoreDetail({ data }: { data: InStoreData }) {
   const payments = Object.entries(data.byPayment);
+  const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+  const [open, setOpen] = useState<InStoreSale | null>(null);
+
+  // Bars in the movers chart are relative to the best-selling item by units.
+  const topUnits = Math.max(1, ...data.byProduct.map((p) => p.units));
 
   return (
     <>
-      {data.byStaff.length > 0 && (
-        <div className="panel">
-          <div className="panel-head">Who sold what</div>
-          {data.byStaff.map((s) => (
-            <div className="sale-row" key={s.name}>
-              <div>
-                <div className="sale-who">{s.name}</div>
-                <div className="sale-meta">
-                  {s.count} sale{s.count === 1 ? "" : "s"} &middot; {s.units} units
+      {/* Two summaries share one card, so they read as a glance, not a log. */}
+      {(data.byStaff.length > 0 || payments.length > 0) && (
+        <div className="panel breakdown">
+          {data.byStaff.length > 0 && (
+            <div className="breakdown-col">
+              <div className="panel-head">By staff</div>
+              {data.byStaff.map((s) => (
+                <div className="sale-row" key={s.name}>
+                  <div>
+                    <div className="sale-who">{s.name}</div>
+                    <div className="sale-meta">
+                      {plural(s.count, "sale")} · {plural(s.units, "unit")}
+                    </div>
+                  </div>
+                  <div className="sale-total">{naira(s.revenue)}</div>
                 </div>
-              </div>
-              <div className="sale-right">
-                <div className="sale-total">{naira(s.revenue)}</div>
-              </div>
+              ))}
             </div>
-          ))}
+          )}
+
+          {payments.length > 0 && (
+            <div className="breakdown-col">
+              <div className="panel-head">By payment</div>
+              {payments.map(([method, amount]) => (
+                <div className="sale-row" key={method}>
+                  <span className="sale-who" style={{ textTransform: "capitalize" }}>
+                    {method}
+                  </span>
+                  <span className="sale-total">{naira(amount)}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
-      {payments.length > 0 && (
-        <div className="panel">
-          <div className="panel-head">By payment method</div>
-          {payments.map(([method, amount]) => (
-            <div className="sale-row" key={method}>
-              <span className="sale-who" style={{ textTransform: "capitalize" }}>
-                {method}
-              </span>
-              <span className="sale-total">{naira(amount)}</span>
-            </div>
-          ))}
-        </div>
-      )}
-
+      {/* A ranked bar chart, so it's clearly "what's selling" and not a price list. */}
       {data.byProduct.length > 0 && (
         <div className="panel">
-          <div className="panel-head">Top movers</div>
-          {data.byProduct.map((p) => (
-            <div className="sale-row" key={p.title}>
-              <span className="sale-who">{p.title.replace(/^AURAUP\s+/i, "")}</span>
-              <div className="sale-right">
-                <div className="sale-total">{naira(p.revenue)}</div>
-                <div className="sale-meta">{p.units} units</div>
+          <div className="panel-head">What&apos;s selling</div>
+          {data.byProduct.map((p, i) => (
+            <div className="mover" key={p.title}>
+              <div className="mover-top">
+                <span className="mover-rank mono">{i + 1}</span>
+                <span className="mover-name">{p.title.replace(/^AURAUP\s+/i, "")}</span>
+                <span className="mover-units mono">{plural(p.units, "unit")}</span>
+                <span className="mover-rev mono">{naira(p.revenue)}</span>
+              </div>
+              <div className="mover-bar">
+                <span style={{ width: `${(p.units / topUnits) * 100}%` }} />
               </div>
             </div>
           ))}
@@ -228,12 +248,20 @@ function InStoreDetail({ data }: { data: InStoreData }) {
       )}
 
       <div className="panel">
-        <div className="panel-head">Every sale</div>
+        <div className="panel-head">
+          All sales
+          <span className="panel-count mono">{data.sales.length}</span>
+        </div>
         {data.sales.length === 0 ? (
           <p className="empty">Nothing in this period.</p>
         ) : (
           data.sales.map((s) => (
-            <div className="sale-row" key={s.id} data-voided={Boolean(s.voided_at)}>
+            <button
+              className="sale-row tappable"
+              key={s.id}
+              data-voided={Boolean(s.voided_at)}
+              onClick={() => setOpen(s)}
+            >
               <div style={{ minWidth: 0 }}>
                 <div className="sale-who">
                   {s.clients?.name ?? "Walk-in"}
@@ -245,7 +273,7 @@ function InStoreDetail({ data }: { data: InStoreData }) {
                       (i) =>
                         `${i.title.replace(/^AURAUP\s+/i, "")} ${[i.color, i.size]
                           .filter(Boolean)
-                          .join("/")} \u00D7${i.quantity}`
+                          .join("/")} ×${i.quantity}`
                     )
                     .join(",  ")}
                 </div>
@@ -257,20 +285,160 @@ function InStoreDetail({ data }: { data: InStoreData }) {
                     day: "numeric",
                     month: "short",
                   })}{" "}
-                  &middot; {s.staff?.name ?? "\u2014"}
+                  · {s.staff?.name ?? "—"}
                 </div>
               </div>
-            </div>
+            </button>
           ))
         )}
       </div>
+
+      {open && <SaleSheet sale={open} onClose={() => setOpen(null)} />}
     </>
+  );
+}
+
+/* ── One in-store sale, opened from the log ───────────────────── */
+
+function saleToReceipt(s: InStoreSale): ReceiptData {
+  return {
+    saleNumber: s.sale_number,
+    createdAt: s.created_at,
+    staffName: s.staff?.name ?? "Staff",
+    clientName: s.clients?.name ?? null,
+    clientPhone: s.clients?.phone ?? null,
+    paymentMethod: s.payment_method,
+    subtotal: Number(s.subtotal),
+    discount: Number(s.discount),
+    total: Number(s.total),
+    lines: s.sale_items.map((i) => ({
+      title: i.title,
+      color: i.color,
+      size: i.size,
+      quantity: i.quantity,
+      lineTotal: Number(i.line_total),
+    })),
+  };
+}
+
+function SaleSheet({ sale, onClose }: { sale: InStoreSale; onClose: () => void }) {
+  const [receipt, setReceipt] = useState<ReceiptData | null>(null);
+  const when = new Date(sale.created_at).toLocaleString("en-NG", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+  if (receipt) return <Receipt data={receipt} onClose={() => setReceipt(null)} />;
+
+  return (
+    <div className="scrim" onClick={onClose} role="dialog" aria-modal="true">
+      <div className="sheet" onClick={(e) => e.stopPropagation()}>
+        <div className="grip" />
+        <div className="sheet-head">
+          <span className="sheet-title">
+            Sale <span className="mono">#{String(sale.sale_number).padStart(4, "0")}</span>
+          </span>
+          <button className="sheet-close" onClick={onClose} aria-label="Close">
+            &times;
+          </button>
+        </div>
+
+        <div className="ticket-body">
+          <div className="order-meta">
+            <span>{when}</span>
+            <span className="order-status">
+              <span className="tag" data-tone="soft" style={{ textTransform: "capitalize" }}>
+                {sale.payment_method}
+              </span>
+              {sale.voided_at && <span className="tag" data-tone="void">Voided</span>}
+            </span>
+          </div>
+
+          <div className="rule" />
+
+          {sale.sale_items.map((i, idx) => (
+            <div className="order-line" key={idx}>
+              <div className="line-main">
+                <div className="line-name">{i.title.replace(/^AURAUP\s+/i, "")}</div>
+                <div className="line-sub">
+                  {[i.color, i.size].filter(Boolean).join(" / ") || "One size"} · qty {i.quantity}
+                </div>
+              </div>
+              <div className="sale-total">{naira(Number(i.line_total))}</div>
+            </div>
+          ))}
+
+          <div className="rule" data-dash="true" />
+
+          <div className="totals-row">
+            <span>Subtotal</span>
+            <span>{naira(Number(sale.subtotal))}</span>
+          </div>
+          {Number(sale.discount) > 0 && (
+            <div className="totals-row" data-kind="discount">
+              <span>Discount</span>
+              <span>−{naira(Number(sale.discount))}</span>
+            </div>
+          )}
+          <div className="totals-row" data-kind="grand">
+            <span>Total</span>
+            <span>{naira(Number(sale.total))}</span>
+          </div>
+
+          <div className="totals-row">
+            <span>Customer</span>
+            <span>{sale.clients?.name ?? "Walk-in"}</span>
+          </div>
+          <div className="totals-row">
+            <span>Served by</span>
+            <span>{sale.staff?.name ?? "—"}</span>
+          </div>
+
+          {sale.voided_at && (
+            <>
+              <div className="rule" data-dash="true" />
+              <p className="hint-note">
+                Voided by {sale.voided_by_staff?.name ?? "staff"}
+                {sale.void_reason ? ` · ${sale.void_reason}` : ""}. Stock was returned.
+              </p>
+            </>
+          )}
+
+          {sale.note && (
+            <>
+              <div className="rule" data-dash="true" />
+              <div className="field-label" style={{ padding: 0, margin: "0 0 6px" }}>
+                Note
+              </div>
+              <p style={{ fontSize: 13.5, lineHeight: 1.5 }}>{sale.note}</p>
+            </>
+          )}
+
+          <button
+            className="primary"
+            style={{ marginTop: 18 }}
+            onClick={() => setReceipt(saleToReceipt(sale))}
+          >
+            Send receipt
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
 /* ── Online ───────────────────────────────────────────────────── */
 
-function OnlineDetail({ data }: { data: OnlineData }) {
+function OnlineDetail({
+  data,
+  onRefresh,
+}: {
+  data: OnlineData;
+  onRefresh: () => void;
+}) {
   const [open, setOpen] = useState<OrderDetail | null>(null);
 
   return (
@@ -300,7 +468,7 @@ function OnlineDetail({ data }: { data: OnlineData }) {
                     (i) =>
                       `${i.title.replace(/^AURAUP\s+/i, "")}${
                         i.variant ? " " + i.variant : ""
-                      } \u00D7${i.quantity}`
+                      } ×${i.quantity}`
                   )
                   .join(",  ")}
               </div>
@@ -324,6 +492,7 @@ function OnlineDetail({ data }: { data: OnlineData }) {
           order={open}
           storeHandle={data.storeHandle}
           onClose={() => setOpen(null)}
+          onFulfilled={onRefresh}
         />
       )}
     </div>
@@ -343,9 +512,11 @@ export interface InStoreData {
   sales: Array<{
     id: string;
     sale_number: number;
+    subtotal: number;
     total: number;
     discount: number;
     payment_method: string;
+    note: string | null;
     created_at: string;
     voided_at: string | null;
     void_reason: string | null;

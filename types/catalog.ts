@@ -13,9 +13,15 @@ export interface Variant {
   sku: string | null;
   /** Full variant title from Shopify, e.g. "Black / L" */
   title: string;
-  /** Parsed out of selectedOptions */
+  /** Parsed out of selectedOptions when present */
   color: string | null;
   size: string | null;
+  /** Every option this variant carries, in Shopify's order.
+      Handles products whose options aren't colour/size (socks by style,
+      caps by fit, and so on). */
+  options: Array<{ name: string; value: string }>;
+  /** Human descriptor built from the options, e.g. "Black / L" or "Crew". */
+  label: string;
   /** Price in kobo-free naira units (Shopify returns "70000.00") */
   price: number;
   stock: number;
@@ -42,6 +48,10 @@ export interface Product {
   colors: string[];
   /** Distinct sizes across variants, in Shopify's order */
   sizes: string[];
+  /** Option dimension names in order, e.g. ["Colour","Size"] or ["Style"]. */
+  optionNames: string[];
+  /** Values available per option name, first-seen order preserved. */
+  optionValues: Record<string, string[]>;
   variants: Variant[];
   totalStock: number;
 }

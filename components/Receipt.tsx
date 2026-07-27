@@ -1,22 +1,18 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toPng } from "html-to-image";
+import { jsPDF } from "jspdf";
 import { naira } from "@/lib/pos-client";
+import { SHOP, type ReceiptData } from "@/lib/receipt";
 import Logo from "./Logo";
-import {
-  SHOP,
-  buildReceiptText,
-  whatsAppLink,
-  toWhatsAppNumber,
-  type ReceiptData,
-} from "@/lib/receipt";
 
 /**
- * Shown straight after a sale, and reopenable from Today.
+ * Shown after a sale and reopenable from Today or History.
  *
- * Three ways out: WhatsApp (the one people will actually use), copy, or print.
- * The printed version is sized for an 80mm till roll but falls back fine on A4.
+ * Two ways out: send the receipt to the customer as a PDF (via the phone's
+ * share sheet, no caption, just the file), or print it. Nothing else, because
+ * at a counter nothing else gets used.
  */
 export default function Receipt({
   data,
@@ -25,69 +21,74 @@ export default function Receipt({
   data: ReceiptData;
   onClose: () => void;
 }) {
-  const [copied, setCopied] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [imageError, setImageError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const paper = useRef<HTMLDivElement>(null);
 
-  const hasNumber = Boolean(toWhatsAppNumber(data.clientPhone));
+  // While this receipt is open, mark the body so the print stylesheet knows to
+  // print only the receipt and hide the dashboard behind it.
+  useEffect(() => {
+    document.body.classList.add("receipt-open");
+    return () => document.body.classList.remove("receipt-open");
+  }, []);
 
-  /**
-   * Renders the receipt to a PNG and hands it to the phone's share sheet, so
-   * the customer gets a proper branded image in WhatsApp rather than text.
-   * Desktop has no share sheet, so it downloads instead.
-   */
-  const shareImage = async () => {
-    if (!paper.current || busy) return;
+  const fileStem = `auraup-receipt-${String(data.saleNumber).padStart(4, "0")}`;
+
+  /** Render the receipt to a PDF sized to its own shape (no A4 whitespace). */
+  const buildPdf = async (): Promise<Blob> => {
+    const node = paper.current!;
+    const dataUrl = await toPng(node, {
+      pixelRatio: 2,
+      backgroundColor: "#ffffff",
+      cacheBust: true,
+    });
+
+    // Measure the rendered image so the PDF page matches its aspect ratio.
+    const img = new Image();
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => resolve();
+      img.onerror = () => reject(new Error("image failed"));
+      img.src = dataUrl;
+    });
+
+    const mmW = 80; // standard receipt width
+    const mmH = (mmW * img.height) / img.width;
+
+    const pdf = new jsPDF({ unit: "mm", format: [mmW, mmH] });
+    pdf.addImage(dataUrl, "PNG", 0, 0, mmW, mmH);
+    return pdf.output("blob");
+  };
+
+  const sendToCustomer = async () => {
+    if (busy) return;
     setBusy(true);
-    setImageError(null);
+    setError(null);
 
     try {
-      const dataUrl = await toPng(paper.current, {
-        // 2x so it stays crisp when someone pinches to zoom
-        pixelRatio: 2,
-        backgroundColor: "#ffffff",
-        cacheBust: true,
-      });
-
-      const blob = await (await fetch(dataUrl)).blob();
-      const file = new File(
-        [blob],
-        `auraup-receipt-${String(data.saleNumber).padStart(4, "0")}.png`,
-        { type: "image/png" }
-      );
+      const blob = await buildPdf();
+      const file = new File([blob], `${fileStem}.pdf`, { type: "application/pdf" });
 
       const canShareFile =
         typeof navigator.canShare === "function" && navigator.canShare({ files: [file] });
 
       if (canShareFile) {
-        await navigator.share({
-          files: [file],
-          title: `AuraUp receipt #${String(data.saleNumber).padStart(4, "0")}`,
-        });
+        // No title, no text — so WhatsApp attaches the PDF with no caption.
+        await navigator.share({ files: [file] });
       } else {
+        // Desktop or unsupported: download the PDF instead.
+        const url = URL.createObjectURL(blob);
         const link = document.createElement("a");
-        link.href = dataUrl;
+        link.href = url;
         link.download = file.name;
         link.click();
+        URL.revokeObjectURL(url);
       }
     } catch (err) {
-      // A cancelled share sheet isn't a failure, it's someone changing their mind.
       if ((err as Error)?.name !== "AbortError") {
-        setImageError("Could not make the image. Send the text instead.");
+        setError("Could not make the receipt. Try Print.");
       }
     } finally {
       setBusy(false);
-    }
-  };
-
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(buildReceiptText(data));
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      setCopied(false);
     }
   };
 
@@ -111,7 +112,7 @@ export default function Receipt({
           </button>
         </div>
 
-        {/* ── The receipt itself, this is what prints ── */}
+        {/* This block is the only thing that prints or exports. */}
         <div className="receipt" id="receipt" ref={paper}>
           <div className="receipt-logo">
             <Logo height={26} />
@@ -192,43 +193,21 @@ export default function Receipt({
           </div>
         </div>
 
-        {/* ── Actions ── */}
+        {/* Actions */}
         <div className="sheet-actions no-print">
-          <button className="primary" onClick={shareImage} disabled={busy}>
-            {busy ? "Preparing\u2026" : "Send as image"}
+          <button className="primary" onClick={sendToCustomer} disabled={busy}>
+            {busy ? "Preparing\u2026" : "Send to customer"}
           </button>
 
-          <a
+          <button
             className="ghost-btn"
             style={{ marginTop: 10, width: "100%" }}
-            href={whatsAppLink(data) ?? "#"}
-            target="_blank"
-            rel="noreferrer"
+            onClick={() => window.print()}
           >
-            {hasNumber ? "Send as text on WhatsApp" : "Share as text on WhatsApp"}
-          </a>
-
-          {imageError && <p className="err-note" style={{ marginTop: 10 }}>{imageError}</p>}
-
-          {!hasNumber && (
-            <p className="hint-note" style={{ marginTop: 8 }}>
-              No phone number on this sale, so WhatsApp will ask you to pick the
-              contact.
-            </p>
-          )}
-
-          <div className="history-actions" style={{ marginTop: 10 }}>
-            <button className="ghost-btn" onClick={copy}>
-              {copied ? "Copied" : "Copy text"}
-            </button>
-            <button className="ghost-btn" onClick={() => window.print()}>
-              Print
-            </button>
-          </div>
-
-          <button className="link-btn" onClick={onClose}>
-            Done
+            Print
           </button>
+
+          {error && <p className="err-note" style={{ marginTop: 10 }}>{error}</p>}
         </div>
       </div>
     </div>
