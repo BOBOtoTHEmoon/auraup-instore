@@ -5,7 +5,7 @@ import { toPng } from "html-to-image";
 import { jsPDF } from "jspdf";
 import { naira } from "@/lib/pos-client";
 import { SHOP, type ReceiptData } from "@/lib/receipt";
-import Logo from "./Logo";
+import Wordmark from "./Wordmark";
 
 /**
  * Shown after a sale and reopenable from Today or History.
@@ -23,7 +23,33 @@ export default function Receipt({
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [logoData, setLogoData] = useState<string | null>(null);
   const paper = useRef<HTMLDivElement>(null);
+
+  // Load the logo as inline data once. html-to-image can't reliably capture a
+  // normal <img> on mobile (it may not have finished loading when the snapshot
+  // is taken), but an embedded data URL is always there.
+  useEffect(() => {
+    let live = true;
+    fetch("/auraup-logo.png")
+      .then((r) => (r.ok ? r.blob() : Promise.reject(new Error("no logo"))))
+      .then(
+        (blob) =>
+          new Promise<string>((resolve, reject) => {
+            const fr = new FileReader();
+            fr.onload = () => resolve(fr.result as string);
+            fr.onerror = () => reject(new Error("read failed"));
+            fr.readAsDataURL(blob);
+          })
+      )
+      .then((url) => live && setLogoData(url))
+      .catch(() => {
+        /* no logo file — the wordmark still carries the brand */
+      });
+    return () => {
+      live = false;
+    };
+  }, []);
 
   // While this receipt is open, mark the body so the print stylesheet knows to
   // print only the receipt and hide the dashboard behind it.
@@ -114,10 +140,12 @@ export default function Receipt({
 
         {/* This block is the only thing that prints or exports. */}
         <div className="receipt" id="receipt" ref={paper}>
-          <div className="receipt-logo">
-            <Logo height={26} />
+          {logoData && (
+            <img className="receipt-logo-img" src={logoData} alt="" />
+          )}
+          <div className="receipt-brand">
+            <Wordmark text={SHOP.name} size={22} letterSpacing={0.02} />
           </div>
-          <div className="receipt-brand">{SHOP.name}</div>
           <div className="receipt-tagline">{SHOP.tagline}</div>
 
           <div className="receipt-rule" />

@@ -1449,6 +1449,22 @@ input {
   margin-bottom: 7px;
 }
 
+.wordmark-fx {
+  display: inline-flex;
+  align-items: baseline;
+  font-family: var(--font-brand), var(--font-body), system-ui, sans-serif;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.receipt-logo-img {
+  height: 30px;
+  width: auto;
+  display: block;
+  margin: 0 auto 8px;
+  object-fit: contain;
+}
+
 .receipt-brand {
   font-family: var(--font-body), sans-serif;
   font-weight: 900;
