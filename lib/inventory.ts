@@ -254,3 +254,76 @@ export async function fetchVariantPrices(
   }
   return map;
 }
+
+/* ── Setting an absolute quantity (manual edit from the dashboard) ── */
+
+const SET_MUTATION = /* GraphQL */ `
+  mutation SetStock($input: InventorySetQuantitiesInput!, $key: String!) {
+    inventorySetQuantities(input: $input) @idempotent(key: $key) {
+      inventoryAdjustmentGroup {
+        changes { name delta quantityAfterChange }
+      }
+      userErrors { field message code }
+    }
+  }
+`;
+
+/**
+ * Sets a variant's available quantity to an absolute number.
+ *
+ * Uses compare-and-swap via changeFromQuantity (the expected current value), so
+ * if a sale changes the stock between the dashboard loading and the owner
+ * saving, Shopify rejects it rather than overwriting the sale. The owner then
+ * refreshes and sees the real number.
+ */
+export async function setStock(
+  inventoryItemId: string,
+  quantity: number,
+  expectedCurrent: number
+): Promise<number> {
+  if (!Number.isInteger(quantity) || quantity < 0) {
+    throw new ShopifyError("Quantity must be a whole number, 0 or more.");
+  }
+
+  const location = locationGid();
+
+  const input = {
+    name: "available",
+    reason: REASON,
+    referenceDocumentUri: `logistics://auraup-instore/manual/${Date.now()}`,
+    quantities: [
+      {
+        inventoryItemId,
+        locationId: location,
+        quantity,
+        // What we expect is there now. Shopify refuses if reality moved.
+        changeFromQuantity: expectedCurrent,
+      },
+    ],
+  };
+
+  const data = await shopifyGraphQL<{
+    inventorySetQuantities: {
+      inventoryAdjustmentGroup: unknown;
+      userErrors: Array<{ field: string[] | null; message: string; code?: string }>;
+    };
+  }>(SET_MUTATION, { input, key: crypto.randomUUID() });
+
+  const errors = data.inventorySetQuantities.userErrors ?? [];
+
+  if (errors.some((e) => e.code === "COMPARE_QUANTITY_STALE" || /stale/i.test(e.message))) {
+    throw new ShopifyError(
+      "Stock changed since the page loaded, probably a sale. Refresh from Shopify and try again."
+    );
+  }
+  if (errors.some((e) => e.code === "INVENTORY_ITEM_NOT_STOCKED_AT_LOCATION")) {
+    throw new ShopifyError(
+      "This variant isn't stocked at the store location. Enable it on the product in Shopify first."
+    );
+  }
+  if (errors.length) {
+    throw new ShopifyError(errors.map((e) => e.message).join("; "), errors);
+  }
+
+  return quantity;
+}

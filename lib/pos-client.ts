@@ -196,6 +196,12 @@ export const api = {
       { method: "POST", body: JSON.stringify({ saleId, reason }) }
     ),
 
+  setStock: (inventoryItemId: string, quantity: number, expectedCurrent: number) =>
+    call<{ ok: boolean; quantity: number }>("/api/inventory/set", {
+      method: "POST",
+      body: JSON.stringify({ inventoryItemId, quantity, expectedCurrent }),
+    }),
+
   retryAll: () =>
     call<{ retried: number; succeeded: number }>("/api/sales/retry", {
       method: "POST",

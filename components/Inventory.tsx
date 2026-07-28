@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { naira, type Product, type Variant } from "@/lib/pos-client";
+import { api, naira, type Product, type Variant } from "@/lib/pos-client";
 
 type Filter = "all" | "low" | "out" | "preorder";
 
@@ -15,13 +15,19 @@ export default function Inventory({
   products,
   loading,
   onReload,
+  onEdited,
 }: {
   products: Product[];
   loading: boolean;
   onReload: () => void;
+  /** Optimistically update a variant's stock after a successful edit. */
+  onEdited: (productId: string, variantId: string, newStock: number) => void;
 }) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
+  const [editing, setEditing] = useState<{ product: Product; variant: Variant } | null>(
+    null
+  );
 
   const totals = useMemo(() => {
     let units = 0;
@@ -124,15 +130,147 @@ export default function Inventory({
       ) : shown.length === 0 ? (
         <p className="empty">Nothing matches that.</p>
       ) : (
-        shown.map((p) => <StockCard key={p.id} product={p} />)
+        shown.map((p) => (
+          <StockCard
+            key={p.id}
+            product={p}
+            onEdit={(variant) => setEditing({ product: p, variant })}
+          />
+        ))
       )}
+
+      {editing && (
+        <EditSheet
+          product={editing.product}
+          variant={editing.variant}
+          onClose={() => setEditing(null)}
+          onSaved={(newStock) => {
+            onEdited(editing.product.id, editing.variant.id, newStock);
+            setEditing(null);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ── Editing one variant's stock ──────────────────────────────── */
+
+function EditSheet({
+  product,
+  variant,
+  onClose,
+  onSaved,
+}: {
+  product: Product;
+  variant: Variant;
+  onClose: () => void;
+  onSaved: (newStock: number) => void;
+}) {
+  const [value, setValue] = useState(String(variant.stock));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const label =
+    [variant.color, variant.size].filter(Boolean).join(" / ") || "One size";
+
+  const save = async () => {
+    const qty = Number.parseInt(value, 10);
+    if (Number.isNaN(qty) || qty < 0) {
+      setError("Enter a whole number, 0 or more.");
+      return;
+    }
+    if (qty === variant.stock) {
+      onClose();
+      return;
+    }
+    if (!variant.inventoryItemId) {
+      setError("This variant can't be edited here. Set it up in Shopify first.");
+      return;
+    }
+
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await api.setStock(variant.inventoryItemId, qty, variant.stock);
+      onSaved(res.quantity);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not update stock");
+      setBusy(false);
+    }
+  };
+
+  const step = (delta: number) => {
+    const n = Number.parseInt(value, 10);
+    setValue(String(Math.max(0, (Number.isNaN(n) ? variant.stock : n) + delta)));
+  };
+
+  return (
+    <div className="scrim" onClick={onClose} role="dialog" aria-modal="true">
+      <div className="sheet" onClick={(e) => e.stopPropagation()}>
+        <div className="grip" />
+        <div className="sheet-head">
+          <span className="sheet-title">Edit stock</span>
+          <button className="sheet-close" onClick={onClose} aria-label="Close">
+            &times;
+          </button>
+        </div>
+
+        <div className="ticket-body">
+          <div className="picker-name" style={{ fontSize: 17 }}>
+            {product.title.replace(/^AURAUP\s+/i, "")}
+          </div>
+          <div className="stock-sub" style={{ marginBottom: 16 }}>
+            {label} &middot; was {variant.stock} in stock
+          </div>
+
+          <div className="edit-stepper">
+            <button onClick={() => step(-1)} aria-label="Fewer">
+              &minus;
+            </button>
+            <input
+              className="edit-input"
+              inputMode="numeric"
+              value={value}
+              onChange={(e) => setValue(e.target.value.replace(/[^0-9]/g, ""))}
+              autoFocus
+            />
+            <button onClick={() => step(1)} aria-label="More">
+              +
+            </button>
+          </div>
+
+          {error && (
+            <p className="err-note" style={{ marginTop: 12 }}>{error}</p>
+          )}
+
+          <button
+            className="primary"
+            style={{ marginTop: 16 }}
+            onClick={save}
+            disabled={busy}
+          >
+            {busy ? "Saving\u2026" : "Save to Shopify"}
+          </button>
+
+          <p className="foot-note" style={{ marginTop: 12 }}>
+            Updates the website stock straight away.
+          </p>
+        </div>
+      </div>
     </div>
   );
 }
 
 /* ── One product, colour down the side, size across ────────────── */
 
-function StockCard({ product }: { product: Product }) {
+function StockCard({
+  product,
+  onEdit,
+}: {
+  product: Product;
+  onEdit: (variant: Variant) => void;
+}) {
   const [broken, setBroken] = useState(false);
 
   /* Sizes in the order Shopify gives them, not alphabetical, so S M L XL
@@ -203,9 +341,23 @@ function StockCard({ product }: { product: Product }) {
                         ? "low"
                         : "ok";
 
+                  const editable = Boolean(v.inventoryItemId);
+
                   return (
-                    <td key={s ?? "one"} data-state={state}>
-                      {v.isPreorder ? "pre" : v.stock}
+                    <td key={s ?? "one"} data-state={state} className="cell">
+                      {editable ? (
+                        <button
+                          className="cell-edit"
+                          onClick={() => onEdit(v)}
+                          title="Tap to edit stock"
+                        >
+                          {v.isPreorder ? "pre" : v.stock}
+                        </button>
+                      ) : v.isPreorder ? (
+                        "pre"
+                      ) : (
+                        v.stock
+                      )}
                     </td>
                   );
                 })}

@@ -280,6 +280,29 @@ export default function Page() {
           products={products}
           loading={loadingProducts}
           onReload={loadProducts}
+          onEdited={(productId, variantId, newStock) =>
+            setProducts((prev) =>
+              prev.map((p) => {
+                if (p.id !== productId) return p;
+                const variants = p.variants.map((v) =>
+                  v.id === variantId
+                    ? {
+                        ...v,
+                        stock: newStock,
+                        availability: (newStock > 0
+                          ? "in_stock"
+                          : "out_of_stock") as typeof v.availability,
+                      }
+                    : v
+                );
+                return {
+                  ...p,
+                  variants,
+                  totalStock: variants.reduce((s, v) => s + Math.max(0, v.stock), 0),
+                };
+              })
+            )
+          }
         />
       ) : tab === "history" ? (
         <History />

@@ -1706,6 +1706,52 @@ input {
   text-transform: uppercase;
 }
 
+.stock-grid td.cell { padding: 0; }
+
+.cell-edit {
+  width: 100%;
+  min-height: 40px;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  padding: 9px 10px;
+}
+
+.cell-edit:active {
+  outline: 2px solid var(--ink);
+  outline-offset: -2px;
+}
+
+.edit-stepper {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+}
+
+.edit-stepper button {
+  width: 52px;
+  border: 1px solid var(--line);
+  background: var(--paper);
+  border-radius: var(--radius);
+  font-size: 22px;
+  line-height: 1;
+}
+
+.edit-input {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+  font-family: var(--font-mono), monospace;
+  font-size: 22px;
+  border: 1px solid var(--ink);
+  border-radius: var(--radius);
+  background: var(--card);
+  padding: 10px;
+  outline: none;
+}
+
 .stock-grid td.none {
   color: var(--line);
   background: repeating-linear-gradient(
