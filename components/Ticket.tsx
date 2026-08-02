@@ -19,7 +19,6 @@ interface Returning {
  */
 export default function Ticket({
   lines,
-  saleNumber,
   onQty,
   onRemove,
   onRecorded,
@@ -27,7 +26,10 @@ export default function Ticket({
   embedded = false,
 }: {
   lines: CartLine[];
-  saleNumber: number;
+  /** No longer shown on the empty ticket — the real number is assigned by the
+      database on Record and appears on the receipt and in Today. Kept optional
+      so callers don't need changing. */
+  saleNumber?: number;
   onQty: (variantId: string, delta: number) => void;
   onRemove: (variantId: string) => void;
   onRecorded: (result: {
@@ -150,9 +152,7 @@ export default function Ticket({
     <div className="ticket-body">
       {!embedded && (
         <div className="sheet-head" style={{ padding: "8px 0 0" }}>
-          <span className="sheet-title">
-            Sale ticket <span className="mono">#{String(saleNumber).padStart(4, "0")}</span>
-          </span>
+          <span className="sheet-title">New sale</span>
           <button className="sheet-close" onClick={onClose} aria-label="Close">
             &times;
           </button>
@@ -163,10 +163,7 @@ export default function Ticket({
         <div className="sheet-head" style={{ padding: "16px 0 0" }}>
           <span className="ticket-brand">
             <Logo height={13} />
-            <span className="sheet-title">Sale ticket</span>
-          </span>
-          <span className="mono" style={{ color: "var(--mute)", fontSize: 12 }}>
-            #{String(saleNumber).padStart(4, "0")}
+            <span className="sheet-title">New sale</span>
           </span>
         </div>
       )}
